@@ -1,0 +1,18 @@
+version: '1.{build}'
+
+init:
+  - cmd: SET PATH=C:\Python27;C:\Python27\Scripts;%PATH%
+
+install:
+  - pip install pyinstaller
+  
+build_script:
+  - pyinstaller -F TagTools.py
+  - copy *.xml dist
+  - copy Dependencies\*.exe dist
+  
+after_build:
+  - 7z a TagTools-v%APPVEYOR_BUILD_VERSION%.zip dist\*
+  
+artifacts:
+  - path: TagTools-v%APPVEYOR_BUILD_VERSION%.zip
