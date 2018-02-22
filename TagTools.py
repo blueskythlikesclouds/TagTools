@@ -42,6 +42,7 @@ class TagMember(object):
         self.flags = 0
         self.byteOffset = 0
         self.typ = None
+        self.tag = None
         
 class TagTemplate(object):
     def __init__(self, name = "v", value = 0):
@@ -61,7 +62,7 @@ class TagType(object):
         self.name = name
         self.templates = []
         self.parent = None
-        self.flags = 0
+        self.flags = 1
         self.subTypeFlags = 0
         self.pointer = None
         self.version = 0
@@ -71,6 +72,7 @@ class TagType(object):
         self.members = []
         self.interfaces = []
         self.hsh = 0
+        self.tag = None
         
     @property
     def superType(self):
@@ -149,6 +151,13 @@ class TagReader(object):
     def fromFile(inputFileName, typeName = "hkRootLevelContainer"):
         with TagReader( open(inputFileName, "rb") ) as r:
             return r.getObject(typeName)
+
+    @staticmethod
+    def checkFile(inputFileName):
+        with open(inputFileName, "rb") as f:
+            f.seek(0x4)
+            
+            return f.read(0x4) == "TAG0"
 
     def readTypeSection(self):
         with TagSectionReader(self, "TYPE") as t1:
@@ -560,6 +569,14 @@ class TagWriter(object):
                     for offset in offsets:
                         self.writeFormat("<I", offset - self.dataOffset)
 
+    def nextPowerOfTwo(self, n):
+        i = 1
+        while i < 0x100000000:
+            i <<= 1
+            if n <= i:
+                return i
+        
+
     def writeRootSection(self, obj):
         self.scanObjectForType(obj)
         self.makeItem(obj, True)
@@ -577,8 +594,7 @@ class TagWriter(object):
                     self.items2 = []
                     
                     for item in items3:
-                        self.pad(2)
-                        self.pad(item.typ.superType.alignment)
+                        self.pad(self.nextPowerOfTwo(item.typ.superType.alignment))
                         
                         item.offset = self.f.tell()
                         for i in xrange( len(item.value) ):
@@ -925,32 +941,50 @@ class TagXmlParser(object):
 
         return obj
         
+TagXmlSerializerSpecialTypeNames = {
+    "hkcdStaticTreeDynamicStoragehkcdStaticTreeCodec3Axis4":"hkcdStaticTreeDynamicStorage4",
+    "hkcdStaticTreeDynamicStoragehkcdStaticTreeCodec3Axis5":"hkcdStaticTreeDynamicStorage5",
+    "hkcdStaticTreeDynamicStoragehkcdStaticTreeCodec3Axis6":"hkcdStaticTreeDynamicStorage6",
+    "hkcdStaticTreeTreehkcdStaticTreeDynamicStorage6":"hkcdStaticTreeDefaultTreeStorage6"
+}
+        
 class TagXmlSerializer(object):
-    def __init__(self):
+    def __init__(self, backporter = None):
         self.types = []
         self.objects = []
         self.objCounter = 0
+        self.backporter = backporter
         
     @staticmethod
-    def toFile(outputFileName, obj):
+    def toFile(outputFileName, obj, backporter = None):
         with open(outputFileName, "w") as f:
             f.write('<?xml version="1.0" encoding="ascii"?>\n')
-            ET.ElementTree(TagXmlSerializer().serialize(obj)).write(f)
+            ET.ElementTree(TagXmlSerializer(backporter).serialize(obj)).write(f)
         
     def getIdString(self, index):
         return "#{:04}".format(index)
         
-    def sanitizeTypeName(self, typ):
+    def getTypeName(self, typ, dontCare = False):
         typ = typ.superType
         
+        if not dontCare and typ.tag != None:
+            return typ.tag
+        
         name = typ.name
+        
         for template in typ.templates:
             if template.isType:
-                name += self.sanitizeTypeName(template.value)
+                name += self.getTypeName(template.value)
             else:
                 name += str(template.value)
         
-        return name.replace(":", "").replace(" ", "")
+        ret = name.replace(":", "").replace(" ", "")
+        
+        if dontCare:
+            return ret
+        
+        typ.tag = ret
+        return typ.tag
         
     def getSubTypeName(self, typ):
         typ = typ.superType
@@ -1040,11 +1074,14 @@ class TagXmlSerializer(object):
                 
                 else:
                     for member in typ.allMembers:
-                        if obj.value.has_key(member.name):
+                        if not member.flags & 1 and obj.value.has_key(member.name):
                             memberElem = self.serializeObject(elem, obj.value[member.name])
                             
                             if memberElem != None:
                                 memberElem.set("name", member.name)
+                                
+                            if member.tag:
+                                memberElem.tag = self.getSubTypeName(member.tag)
                                  
             elif typ.subType & 0xF == TagSubType.Array:
                 pointer = typ.pointer.superType
@@ -1069,6 +1106,11 @@ class TagXmlSerializer(object):
                 if typ.tupleSize == 4 and pointer.subType == TagSubType.Float:
                     elem.tag = "vec4"
                     elem.attrib.pop("size")
+                    
+                # hkMatrix4f
+                elif typ.tupleSize == 16 and pointer.subType == TagSubType.Float:
+                    elem.tag = "vec16"
+                    elem.attrib.pop("size")
         
             return elem
             
@@ -1081,14 +1123,14 @@ class TagXmlSerializer(object):
         parent.set("type", self.getSubTypeName(typ))
         
         if typ.subType == TagSubType.Pointer:
-            parent.set("class", self.sanitizeTypeName(typ.pointer))
+            parent.set("class", self.getTypeName(typ.pointer))
             
         elif typ.subType == TagSubType.Class:
             if typ.name == "hkQsTransformf":
                 parent.set("type", "vec12")
                 
             else:
-                parent.set("class", self.sanitizeTypeName(typ))
+                parent.set("class", self.getTypeName(typ))
                 
         elif typ.subType == TagSubType.Array:
             parent.set("array", "true")
@@ -1101,30 +1143,33 @@ class TagXmlSerializer(object):
             else:
                 parent.set("count", str(typ.tupleSize))
                 self.serializeMemberProp(parent, typ.pointer)
-            
+  
     def serializeType(self, parent, typ):
         elem = ET.SubElement(parent, "class")
-        elem.set("name", self.sanitizeTypeName(typ))
+        elem.set("name", self.getTypeName(typ, True))
         elem.set("version", str(typ.version))
         
         if typ.parent != None:
-            elem.set("parent", self.sanitizeTypeName(typ.parent))
+            elem.set("parent", self.getTypeName(typ.parent))
             
         for member in typ.members:
             memberElem = ET.SubElement(elem, "member")
             memberElem.set("name", member.name)
-            self.serializeMemberProp(memberElem, member.typ)
+            self.serializeMemberProp(memberElem, member.tag if member.tag else member.typ)
             
             if member.flags & 1:
                 memberElem.set("type", "void")
-            
+    
         return elem
         
     def serialize(self, obj):
         self.objects.append(obj)
         self.objCounter += 1
-        obj.attachment = self.objCounter                
+        obj.attachment = self.objCounter              
         self.scanObjectForType(obj)
+        
+        if self.backporter != None:
+            self.backporter(self.types)
         
         rootElem = ET.Element("hktagfile", {"version":"1", "sdkversion":"hk_2012.2.0-r1"})
         
@@ -1135,14 +1180,14 @@ class TagXmlSerializer(object):
         for obj2 in self.objects:
             elem = self.serializeObject(rootElem, obj2)
             elem.set("id", self.getIdString(obj2.attachment))
-            elem.set("type", self.sanitizeTypeName(obj2.typ.superType))
+            elem.set("type", self.getTypeName(obj2.typ.superType))
             elem.tag = "object"
           
         TagXmlSerializer.indent(rootElem)      
         return rootElem
         
     @staticmethod
-    def indent(elem, level=0, hor='  ', ver='\n'):
+    def indent(elem, level=0, hor="  ", ver="\n"):
         i = ver + level * hor
         if len(elem):
             if not elem.text or not elem.text.strip():
@@ -1158,6 +1203,8 @@ class TagXmlSerializer(object):
                 elem.tail = i
                 if elem.text and elem.text.startswith("\n"):
                     elem.text = elem.text.replace("\n", i + hor) + i
+                elif (elem.tag == "class" or elem.tag == "struct") and not len(elem):
+                    elem.text = i
         
     def scanType(self, typ):
         if typ != None and not typ in self.types:
@@ -1168,7 +1215,22 @@ class TagXmlSerializer(object):
             
             for member in typ.members:
                 self.scanType(member.typ)
+
+            self.getTypeName(typ)
+            
+            if TagXmlSerializerSpecialTypeNames.has_key(typ.tag):
+                specialName = TagXmlSerializerSpecialTypeNames[typ.tag]
+                
+                # Create Fake Type
+                fakeType = TagType(specialName)
+                fakeType.subTypeFlags = 7
+                fakeType.tag = specialName
+                fakeType.parent = TagType(typ.tag)
+                self.types.append(fakeType)
+                
+                typ.tag = specialName
     
+
     def scanObjectForType(self, obj):
         if obj == None:
             return
@@ -1200,9 +1262,103 @@ def findFile(fileName):
             
     raise ValueError("{} could not be found.".format(fileName))
         
+# I hate to do it like this, but I can't find
+# any other proper way. If you got ideas I'm welcome.
+class TagTypeBackporter(object):
+    @staticmethod
+    def findMember(typ, name):
+        for member in typ.members:
+            if member.name == name:
+                return member
+
+    @staticmethod
+    def findType(types, name):
+        for typ in types:
+            if typ.name == name:
+                return typ
+                
+    @staticmethod
+    def backportTypes2012(types):
+        # hkReferencedObject
+        typ = TagTypeBackporter.findType(types, "hkReferencedObject")
+        if typ != None:
+            typ.version = 0
+            typ.members.remove( TagTypeBackporter.findMember(typ, "propertyBag") )
+            TagTypeBackporter.findMember(typ, "refCount").name = "referenceCount"
+            
+            # Remove anything related to property bag.
+            for typ in list(types):
+                if typ.name == "hkDefaultPropertyBag" or \
+                	typ.name.startswith("hkHash") or \
+                	typ.name == "hkTuple" or \
+                	typ.name == "hkPropertyId" or \
+                	typ.name == "hkPtrAndInt" or \
+                	typ.name == "hkPropertyDesc":
+                    types.remove(typ)
+            
+        # hkxMeshSection
+        typ = TagTypeBackporter.findType(types, "hkxMeshSection")
+        if typ != None:
+            typ.version = 4
+            typ.members.remove( TagTypeBackporter.findMember(typ, "boneMatrixMap") )
+        
+        # hkxVertexBuffer::VertexData
+        typ = TagTypeBackporter.findType(types, "hkxVertexBuffer::VertexData")
+        if typ != None:
+            typ.version = 0
+        
+        # hkxVertexDescription::ElementDecl
+        typ = TagTypeBackporter.findType(types, "hkxVertexDescription::ElementDecl")
+        if typ != None:
+            typ.version = 3
+            typ.members.remove( TagTypeBackporter.findMember(typ, "channelID") )
+        
+        # hkxMaterial
+        typ = TagTypeBackporter.findType(types, "hkxMaterial")
+        if typ != None:
+            typ.version = 4
+            typ.members.remove( TagTypeBackporter.findMember(typ, "userData") )
+        
+        # hkaSkeleton
+        typ = TagTypeBackporter.findType(types, "hkaSkeleton")
+        if typ != None:
+            typ.version = 5
+        
+        # hkcdStaticMeshTreeBase
+        typ = TagTypeBackporter.findType(types, "hkcdStaticMeshTreeBase")
+        if typ != None:
+            typ.version = 0
+            typ.members.remove( TagTypeBackporter.findMember(typ, "primitiveStoresIsFlatConvex") )
+        
+        # hkaInterleavedUncompressedAnimation
+        typ = TagTypeBackporter.findType(types, "hkaInterleavedUncompressedAnimation")
+        if typ != None:
+            typ.version = 0
+            
+        # hkpStaticCompundShape
+        typ = TagTypeBackporter.findType(types, "hkpStaticCompoundShape")
+        if typ != None:
+            TagTypeBackporter.findMember(typ, "numBitsForChildShapeKey").tag = TagTypeBackporter.findMember(typ, "instanceExtraInfos").typ.pointer
+            
+        # hkpStaticCompoundShape::Instance
+        typ = TagTypeBackporter.findType(types, "hkpStaticCompoundShape::Instance")
+        if typ != None:
+            typ.version = 0
+            
+        return types
+        
+def findFile(fileName):
+    for arg in sys.argv:
+        path = os.path.join(os.path.dirname(arg), fileName)
+        
+        if os.path.exists(path):
+            return path
+            
+    raise ValueError("{} could not be found.".format(fileName))
+                
 if __name__ == "__main__":
     if len(sys.argv) <= 1:
-        print "Tool for converting HKX (version <= 2012 2.0) files to 2016 1.0 tag binary files."
+        print "Tool for converting HKX (version <= 2012 2.0) files to 2016 1.0 tag binary files, or the reverse."
         print "\nUsage: {} [source] [destination]".format(os.path.basename(sys.argv[0]))
         print "If no destination is included, the changes will be overwritten to the source."
         print "You can do a simple drag and drop that way."
@@ -1215,26 +1371,18 @@ if __name__ == "__main__":
         if len(sys.argv) >= 3:
             outputFileName = sys.argv[2]
         else:
-            outputFileName = inputFileName
+            outputFileName = os.path.splitext(inputFileName)[0] + ".hkx"
             
-        if False:
-            with open(inputFileName, "rb") as f:
-                f.seek(4)
-                
-                if f.read(4) == "TAG0":
-                    f.seek(0)
-                    
-                    r = TagReader(f)
-                    
-                    if inputFileName == outputFileName:
-                        outputFileName = outputFileName[:outputFileName.rindex(".")] + ".xml"
-                    
-                    TagXmlSerializer.toFile(outputFileName, r.getObject())
-                    
-                    sys.exit()
+        tempFileName = os.path.join(os.path.dirname(sys.argv[0]), "temp.xml")
             
-        types = TagTypeHelper.loadTypes(findFile("TypeDatabase.xml"))
-        tempFilePath = os.path.join(os.path.dirname(sys.argv[0]), "temp.xml")
-        subprocess.call([findFile("AssetCc2.exe"), "-g", "-x", inputFileName, tempFilePath])
-        TagWriter.toFile(outputFileName, TagXmlParser.fromFile(tempFilePath, types))
-        os.remove(tempFilePath)
+        if TagReader.checkFile(inputFileName):
+            TagXmlSerializer.toFile(tempFileName, TagReader.fromFile(inputFileName), TagTypeBackporter.backportTypes2012)
+            subprocess.call([findFile("AssetCc2.exe"), "--strip", "--rules4101", tempFileName, outputFileName])
+            
+        else:
+            types = TagTypeHelper.loadTypes(findFile("TypeDatabase.xml"))
+            subprocess.call([findFile("AssetCc2.exe"), "-g", "-x", inputFileName, tempFileName])
+            TagWriter.toFile(outputFileName, TagXmlParser.fromFile(tempFileName, types))
+          
+        if os.path.exists(tempFileName):       
+            os.remove(tempFileName)
