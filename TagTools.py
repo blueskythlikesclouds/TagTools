@@ -280,7 +280,7 @@ class TagReader(object):
             ret = "<I"
             
         elif flags & TagSubType.Int64:
-            ret = "<Q"
+            ret = "<q"
             
         if flags & TagSubType.IsSigned or signed:
             return ret.lower()
