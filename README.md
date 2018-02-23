@@ -6,8 +6,7 @@ Tools for editing Havok 2016 1.0 binary tag files.
 
 # Tools
 ## Tag Tools
-This tool converts Havok files **(version <= 2012 2.0)** to 2016 1.0 tag binary files.
-XML creation from 2016 1.0 is currently WIP.
+This tool converts Havok files **(version <= 2012 2.0)** to 2016 1.0 tag binary files, and vice versa.
 ### Usage
 ``TagTools [source] [destination]``  
 If the destination path is not included, the changes will be overwritten to the source file.  

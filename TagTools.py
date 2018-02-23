@@ -1140,6 +1140,9 @@ class TagXmlSerializer(object):
             if typ.pointer.superType.subType == TagSubType.Float and typ.tupleSize == 4:
                 parent.set("type", "vec4")
                 
+            elif typ.pointer.superType.subType == TagSubType.Float and typ.tupleSize == 16:
+                parent.set("type", "vec16")
+
             else:
                 parent.set("count", str(typ.tupleSize))
                 self.serializeMemberProp(parent, typ.pointer)
@@ -1358,7 +1361,7 @@ def findFile(fileName):
                 
 if __name__ == "__main__":
     if len(sys.argv) <= 1:
-        print "Tool for converting HKX (version <= 2012 2.0) files to 2016 1.0 tag binary files, or the reverse."
+        print "Tool for converting HKX (version <= 2012 2.0) files to 2016 1.0 tag binary files, and vice versa."
         print "\nUsage: {} [source] [destination]".format(os.path.basename(sys.argv[0]))
         print "If no destination is included, the changes will be overwritten to the source."
         print "You can do a simple drag and drop that way."
