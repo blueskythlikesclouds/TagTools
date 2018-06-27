@@ -24,7 +24,7 @@ To specify these, simply append "tags" at the end of the names of your collision
 
 ```
 MyCollisionMesh -> MyCollisionMesh@Grass
-MyCollisionMesh -> MyCollisionMesh@WallJump@Not_Ground@Stone
+MyOtherCollisionMesh -> MyOtherCollisionMesh@WallJump@Not_Ground@Stone
 ```
 
 Any of the following can be used as valid tags:  
