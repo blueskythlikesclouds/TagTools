@@ -13,42 +13,68 @@ static void HK_CALL errorReport(const char* msg, void* userArgGivenToInit)
 	printf("%s", msg);
 }
 
-unsigned int getSurfaceTypeFromName(std::string name) {
+unsigned int getUserDataFromName(std::string name) {
+	unsigned int flags = 0, type = 0;
+	int tagIndex = -1;
+	size_t len = name.length();
+	bool lastChar = false;
+
 	std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-	int tagIndex = name.find_last_of("@");
-	
-	if (tagIndex != std::string::npos) {
-		std::string type = name.substr(tagIndex + 1);
-		
-		if (type == "stone") return 0x00000000;
-        else if (type == "earth") return 0x01000000;
-        else if (type == "wood") return 0x02000000;
-        else if (type == "grass") return 0x03000000;
-        else if (type == "iron") return 0x04000000;
-        else if (type == "sand") return 0x05000000;
-        else if (type == "phantomcube") return 0x06000000;
-        else if (type == "ford") return 0x08000000;
-        else if (type == "glass") return 0x0a000000;
-        else if (type == "snow") return 0x0b000000;
-        else if (type == "sandfall") return 0x0e000000;
-        else if (type == "ice") return 0x10000000;
-        else if (type == "water") return 0x11000000;
-        else if (type == "sea") return 0x12000000;
-        else if (type == "waterfall") return 0x13000000;
-        else if (type == "dead") return 0x17000000;
-        else if (type == "waterdead") return 0x18000000;
-        else if (type == "damage") return 0x1a000000;
-        else if (type == "pool") return 0x1c000000;
-        else if (type == "air") return 0x1d000000;
-        else if (type == "invisible") return 0x1f000000;
-        else if (type == "wiremesh") return 0x20000000;
-        else if (type == "dead_anydir") return 0x24000000;
-        else if (type == "damage_through") return 0x25000000;
-        else if (type == "dry_grass") return 0x26000000;
-        else if (type == "wetroad") return 0x27000000;
-        else if (type == "snake") return 0x28000000;
-    }
-    return 0;
+
+	for (size_t i = 0; i < len; ++i) {
+		if (name[i] == '@' || (lastChar = (i == len - 1))) {
+			if (tagIndex != -1) {
+				std::string tag = name.substr(tagIndex,
+					((lastChar) ? i + 1 : i) - tagIndex);
+
+				// Flags
+				if (tag == "not_stand") flags |= 1;
+				else if (tag == "slide") flags |= 2;
+				else if (tag == "breakable") flags |= 4;
+				else if (tag == "stairs") flags |= 8;
+				else if (tag == "parkour") flags |= 0x10;
+				else if (tag == "walljump") flags |= 0x20;
+				else if (tag == "not_ground") flags |= 0x800;
+				else if (tag == "press_dead") flags |= 0x1000;
+				else if (tag == "movable") flags |= 0x2000;
+				else if (tag == "rayblock") flags |= 0x4000;
+				else if (tag == "slip") flags |= 0x8000;
+
+				// Type
+				else if (tag == "stone") type = 0x00000000;
+				else if (tag == "earth") type = 0x01000000;
+				else if (tag == "wood") type = 0x02000000;
+				else if (tag == "grass") type = 0x03000000;
+				else if (tag == "iron") type = 0x04000000;
+				else if (tag == "sand") type = 0x05000000;
+				else if (tag == "phantomcube") type = 0x06000000;
+				else if (tag == "ford") type = 0x08000000;
+				else if (tag == "glass") type = 0x0a000000;
+				else if (tag == "snow") type = 0x0b000000;
+				else if (tag == "sandfall") type = 0x0e000000;
+				else if (tag == "ice") type = 0x10000000;
+				else if (tag == "water") type = 0x11000000;
+				else if (tag == "sea") type = 0x12000000;
+				else if (tag == "waterfall") type = 0x13000000;
+				else if (tag == "dead") type = 0x17000000;
+				else if (tag == "waterdead") type = 0x18000000;
+				else if (tag == "damage") type = 0x1a000000;
+				else if (tag == "pool") type = 0x1c000000;
+				else if (tag == "air") type = 0x1d000000;
+				else if (tag == "invisible") type = 0x1f000000;
+				else if (tag == "wiremesh") type = 0x20000000;
+				else if (tag == "dead_anydir") type = 0x24000000;
+				else if (tag == "damage_through") type = 0x25000000;
+				else if (tag == "dry_grass") type = 0x26000000;
+				else if (tag == "wetroad") type = 0x27000000;
+				else if (tag == "snake") type = 0x28000000;
+			}
+
+			tagIndex = i + 1;
+		}
+	}
+
+	return type | flags;
 }
 
 void rigidBodiesToCompoundShape(const char* filename, const char* output)
@@ -98,7 +124,7 @@ void rigidBodiesToCompoundShape(const char* filename, const char* output)
 			
 			// Get geometry from shape.
 			hkGeometry *geometry = hkpShapeConverter::toSingleGeometry(info.m_shape);
-			unsigned int userData = getSurfaceTypeFromName(rigidBody->getName());
+			unsigned int userData = getUserDataFromName(rigidBody->getName());
 			
 			for (int t = 0; t < geometry->m_triangles.getSize(); t++) {
 				geometry->m_triangles[t].m_material = userData;
