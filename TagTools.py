@@ -114,13 +114,14 @@ class TagItem(object):
         self.value = None
         
 class TagSectionReader(object):
-    def __init__(self, r, signature):
+    def __init__(self, r, *signatures):
         self.r = r
         self.offset = r.f.tell() + 8
         self.size = (r.readFormat(">I") & 0x3FFFFFFF) - 8
+        self.signature = r.f.read( 4 )
         
-        if r.f.read(4) != signature:
-            raise ValueError()
+        if not self.signature in signatures:
+            raise ValueError( "Invalid signature, expected {}, got {}".format( ", ".join( signatures ), self.signature ) )
     
     @property
     def end(self):
@@ -133,41 +134,73 @@ class TagSectionReader(object):
     def __exit__(self, arg1, arg2, arg3):
         self.r.f.seek(self.offset + self.size)
 
+class TagFileType(object):
+	Invalid = -1
+	Object = 0
+	Compendium = 1
+
 class TagReader(object):
-    def __init__(self, f):
+    def __init__(self, f, compendium=None):
         self.f = f
         self.dataOffset = 0
         self.types = []
         self.items = []
+        self.id = ""
+        self.compendium = compendium
         self.readRootSection()
         
     def __enter__(self):
         return self
         
     def __exit__(self, arg1, arg2, arg3):
+        if ( self.compendium != None ):
+            self.compendium.f.close()
+        
         self.f.close()
     
     @staticmethod    
-    def fromFile(inputFileName, typeName = "hkRootLevelContainer"):
-        with TagReader( open(inputFileName, "rb") ) as r:
-            return r.getObject(typeName)
+    def fromFile(inputFileName, compendiumFileName = None):
+        compendium = None
+        if ( compendiumFileName != None and os.path.exists( compendiumFileName ) ):
+            compendium = TagReader( open( compendiumFileName, "rb" ) )
+        
+        with TagReader( open(inputFileName, "rb"), compendium ) as r:
+            return r.getObject(0)
 
     @staticmethod
     def checkFile(inputFileName):
         with open(inputFileName, "rb") as f:
-            f.seek(0x4)
+            f.seek( 4 )
             
-            return f.read(0x4) == "TAG0"
+            signature = f.read( 4 )
+            if ( signature == "TAG0" ):
+                return TagFileType.Object
+            elif ( signature == "TCM0" ):
+                return TagFileType.Compendium
+            else:
+                return TagFileType.Invalid
 
     def readTypeSection(self):
-        with TagSectionReader(self, "TYPE") as t1:
+        with TagSectionReader(self, "TYPE", "TCRF") as t1:
+            if ( t1.signature == "TCRF" ):
+                compendiumId = self.f.read( 8 )
+                
+                if ( self.compendium == None ):
+                    raise ValueError( "Missing compendium, tag file cannot be parsed" )
+                
+                if ( self.compendium.id != compendiumId ):
+                    raise ValueError( "Compendium IDs don't match" )
+                
+                self.types = self.compendium.types
+                return
+            
             with TagSectionReader(self, "TPTR") as t2:
                 pass
                 
             with TagSectionReader(self, "TSTR") as t3:
                 typeStrings = self.f.read(t3.size).split("\0")
                 
-            with TagSectionReader(self, "TNAM") as t4:
+            with TagSectionReader(self, "TNAM", "TNA1") as t4:
                 typeCount = self.readPacked()
                 self.types = [TagType() for x in xrange(typeCount)]
                 self.types[0] = None
@@ -186,7 +219,7 @@ class TagReader(object):
             with TagSectionReader(self, "FSTR") as t5:
                 fieldStrings = self.f.read(t5.size).split("\0")
                 
-            with TagSectionReader(self, "TBOD") as t6:
+            with TagSectionReader(self, "TBOD", "TBDY") as t6:
                 while not t6.end:
                     typeIndex = self.readPacked()
                     
@@ -254,17 +287,24 @@ class TagReader(object):
                 pass
 
     def readRootSection(self):
-        with TagSectionReader(self, "TAG0") as t1:
-            
-            with TagSectionReader(self, "SDKV") as t2:
-                if self.f.read(8) != "20160100":
-                    raise ValueError("Invalid SDK version.")
+        with TagSectionReader(self, "TAG0", "TCM0") as t1:
+            if ( t1.signature == "TAG0" ):
+                with TagSectionReader(self, "SDKV") as t2:
+                    version = self.f.read( 8 )
+                    if ( version != "20160100" and version != "20160200" ):
+                        raise ValueError("Invalid SDK version.")
                     
-            with TagSectionReader(self, "DATA") as t3:
-                self.dataOffset = t3.offset
+                with TagSectionReader(self, "DATA") as t3:
+                    self.dataOffset = t3.offset
                 
-            self.readTypeSection()
-            self.readIndexSection()
+                self.readTypeSection()
+                self.readIndexSection()
+                
+            elif ( t1.signature == "TCM0" ):
+                with TagSectionReader( self, "TCID" ) as t4:
+                    self.id = self.f.read( 8 )
+                    
+                self.readTypeSection()
     
     @staticmethod
     def getFormatString(flags, signed = False):
@@ -393,8 +433,8 @@ class TagReader(object):
             if item.typ == typ:
                 return item
             
-    def getObject(self, typ = "hkRootLevelContainer"):
-        item = self.getItem(typ)
+    def getObject(self, index):
+        item = self.items[ index + 1 ]
         
         if item.typ == None:
             return None
@@ -570,12 +610,17 @@ class TagWriter(object):
                         self.writeFormat("<I", offset - self.dataOffset)
 
     def nextPowerOfTwo(self, n):
-        i = 1
-        while i < 0x100000000:
-            i <<= 1
-            if n <= i:
-                return i
+        if ( n == 1 ):
+            return 2
         
+        n -= 1
+        n |= n >> 1
+        n |= n >> 2
+        n |= n >> 4
+        n |= n >> 8
+        n |= n >> 16
+        n += 1
+        return n
 
     def writeRootSection(self, obj):
         self.scanObjectForType(obj)
@@ -1265,8 +1310,6 @@ def findFile(fileName):
             
     raise ValueError("{} could not be found.".format(fileName))
         
-# I hate to do it like this, but I can't find
-# any other proper way. If you got ideas I'm welcome.
 class TagTypeBackporter(object):
     @staticmethod
     def findMember(typ, name):
@@ -1350,19 +1393,23 @@ class TagTypeBackporter(object):
             
         return types
         
-def findFile(fileName):
+def findFile(fileName, mandatory = True):
     for arg in sys.argv:
         path = os.path.join(os.path.dirname(arg), fileName)
         
         if os.path.exists(path):
             return path
             
-    raise ValueError("{} could not be found.".format(fileName))
+    if mandatory:
+        raise ValueError( "AssetCc2.exe could not be found." )
+            
+    return None
                 
 if __name__ == "__main__":
     if len(sys.argv) <= 1:
         print "Tool for converting HKX (version <= 2012 2.0) files to 2016 1.0 tag binary files, and vice versa."
-        print "\nUsage: {} [source] [destination]".format(os.path.basename(sys.argv[0]))
+        print "\nUsage: {} [source] [compendium] [destination]".format(os.path.basename(sys.argv[0]))
+        print "Compendium file is needed for files that contain no type info."
         print "If no destination is included, the changes will be overwritten to the source."
         print "You can do a simple drag and drop that way."
         print "\nMade by Skyth."
@@ -1370,17 +1417,41 @@ if __name__ == "__main__":
         raw_input()
     
     else:
-        inputFileName = sys.argv[1]
-        if len(sys.argv) >= 3:
-            outputFileName = sys.argv[2]
-        else:
-            outputFileName = os.path.splitext(inputFileName)[0] + ".hkx"
+        inputFileName = None
+        inputFileType = TagFileType.Invalid
+        compendiumFileName = None
+        outputFileName = None
+        
+        for arg in sys.argv[1:]:
+            if ( os.path.exists( arg ) ):
+                typ = TagReader.checkFile( arg )
+            else:
+                typ = TagFileType.Invalid
+            
+            if ( compendiumFileName == None and typ == TagFileType.Compendium ):
+                compendiumFileName = arg
+            elif ( inputFileName == None ):
+                inputFileName = arg
+                inputFileType = typ
+            elif ( outputFileName == None ):
+                outputFileName = arg
+                
+        if ( outputFileName == None ):
+            outputFileName = os.path.splitext( inputFileName )[ 0 ] + ".hkx"
             
         tempFileName = os.path.join(os.path.dirname(sys.argv[0]), "temp.xml")
             
-        if TagReader.checkFile(inputFileName):
-            TagXmlSerializer.toFile(tempFileName, TagReader.fromFile(inputFileName), TagTypeBackporter.backportTypes2012)
-            subprocess.call([findFile("AssetCc2.exe"), "--strip", "--rules4101", tempFileName, outputFileName])
+        if inputFileType == TagFileType.Object:
+            assetCc2Path = findFile("AssetCc2.exe", False)
+            
+            destinationFileName = tempFileName
+            if ( assetCc2Path == None ):
+                destinationFileName = outputFileName
+            
+            TagXmlSerializer.toFile(destinationFileName, TagReader.fromFile(inputFileName, compendiumFileName), TagTypeBackporter.backportTypes2012)
+            
+            if ( assetCc2Path != None ):
+                subprocess.call([assetCc2Path, "--strip", "--rules4101", tempFileName, outputFileName])
             
         else:
             types = TagTypeHelper.loadTypes(findFile("TypeDatabase.xml"))
