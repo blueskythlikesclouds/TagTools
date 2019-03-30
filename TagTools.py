@@ -291,7 +291,7 @@ class TagReader(object):
             if ( t1.signature == "TAG0" ):
                 with TagSectionReader(self, "SDKV") as t2:
                     version = self.f.read( 8 )
-                    if ( version != "20160100" and version != "20160200" ):
+                    if ( version != "20160100" and version != "20160200" and version != "20150100" ):
                         raise ValueError("Invalid SDK version.")
                     
                 with TagSectionReader(self, "DATA") as t3:
@@ -1327,7 +1327,7 @@ class TagTypeBackporter(object):
     def backportTypes2012(types):
         # hkReferencedObject
         typ = TagTypeBackporter.findType(types, "hkReferencedObject")
-        if typ != None:
+        if typ != None and typ.version > 0:
             typ.version = 0
             typ.members.remove( TagTypeBackporter.findMember(typ, "propertyBag") )
             TagTypeBackporter.findMember(typ, "refCount").name = "referenceCount"
@@ -1344,41 +1344,41 @@ class TagTypeBackporter(object):
             
         # hkxMeshSection
         typ = TagTypeBackporter.findType(types, "hkxMeshSection")
-        if typ != None:
+        if typ != None and typ.version > 4:
             typ.version = 4
             typ.members.remove( TagTypeBackporter.findMember(typ, "boneMatrixMap") )
         
         # hkxVertexBuffer::VertexData
         typ = TagTypeBackporter.findType(types, "hkxVertexBuffer::VertexData")
-        if typ != None:
+        if typ != None and typ.version > 0:
             typ.version = 0
         
         # hkxVertexDescription::ElementDecl
         typ = TagTypeBackporter.findType(types, "hkxVertexDescription::ElementDecl")
-        if typ != None:
+        if typ != None and typ.version > 3:
             typ.version = 3
             typ.members.remove( TagTypeBackporter.findMember(typ, "channelID") )
         
         # hkxMaterial
         typ = TagTypeBackporter.findType(types, "hkxMaterial")
-        if typ != None:
+        if typ != None and typ.version > 4:
             typ.version = 4
             typ.members.remove( TagTypeBackporter.findMember(typ, "userData") )
         
         # hkaSkeleton
         typ = TagTypeBackporter.findType(types, "hkaSkeleton")
-        if typ != None:
+        if typ != None and typ.version > 5:
             typ.version = 5
         
         # hkcdStaticMeshTreeBase
         typ = TagTypeBackporter.findType(types, "hkcdStaticMeshTreeBase")
-        if typ != None:
+        if typ != None and typ.version > 0:
             typ.version = 0
             typ.members.remove( TagTypeBackporter.findMember(typ, "primitiveStoresIsFlatConvex") )
         
         # hkaInterleavedUncompressedAnimation
         typ = TagTypeBackporter.findType(types, "hkaInterleavedUncompressedAnimation")
-        if typ != None:
+        if typ != None and typ.version > 0:
             typ.version = 0
             
         # hkpStaticCompundShape
@@ -1388,7 +1388,7 @@ class TagTypeBackporter(object):
             
         # hkpStaticCompoundShape::Instance
         typ = TagTypeBackporter.findType(types, "hkpStaticCompoundShape::Instance")
-        if typ != None:
+        if typ != None and typ.version > 0:
             typ.version = 0
             
         return types

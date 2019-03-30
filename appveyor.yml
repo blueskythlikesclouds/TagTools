@@ -1,5 +1,3 @@
-version: '1.{build}'
-
 init:
   - cmd: SET PATH=C:\Python27;C:\Python27\Scripts;%PATH%
 
@@ -12,7 +10,8 @@ build_script:
   - copy Dependencies\*.exe dist
   
 after_build:
-  - 7z a TagTools-v%APPVEYOR_BUILD_VERSION%.zip dist\*
+  - 7z a -t7z -m0=lzma2 -mx=9 -mfb=64 -md=1024m -ms=on TagTools.7z .\dist\*
   
 artifacts:
-  - path: TagTools-v%APPVEYOR_BUILD_VERSION%.zip
+  - path: TagTools.7z
+    name: TagTools

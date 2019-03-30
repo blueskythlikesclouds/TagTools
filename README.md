@@ -87,9 +87,6 @@ Since the tool accepts only one argument, you can do a drag and drop, saving cha
 This tool was originally made by NeKit, TwilightZoney and N69 for Sonic Lost World.  
 Modified by me to work with Tag Tools.
 
-# File Format Documentation
-You can find the documentation of Havok 2016 1.0 binary tag format in the [wiki](https://github.com/blueskythlikesclouds/TagTools/wiki/Format-Documentation) page.
-
 # License
 Tag Tools uses the MIT License.  
 For details, see [LICENSE](https://github.com/blueskythlikesclouds/TagTools/blob/master/LICENSE).
