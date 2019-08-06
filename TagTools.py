@@ -145,7 +145,7 @@ class TagReader(object):
         self.dataOffset = 0
         self.types = []
         self.items = []
-        self.id = ""
+        self.ids = []
         self.compendium = compendium
         self.readRootSection()
         
@@ -188,8 +188,8 @@ class TagReader(object):
                 if ( self.compendium == None ):
                     raise ValueError( "Missing compendium, tag file cannot be parsed" )
                 
-                if ( self.compendium.id != compendiumId ):
-                    raise ValueError( "Compendium IDs don't match" )
+                if ( compendiumId not in self.compendium.ids ):
+                    raise ValueError( "Compendium ID could not be found" )
                 
                 self.types = self.compendium.types
                 return
@@ -302,7 +302,8 @@ class TagReader(object):
                 
             elif ( t1.signature == "TCM0" ):
                 with TagSectionReader( self, "TCID" ) as t4:
-                    self.id = self.f.read( 8 )
+                    for i in xrange( t4.size / 8 ):
+                        self.ids.append( self.f.read( 8 ) )
                     
                 self.readTypeSection()
     
