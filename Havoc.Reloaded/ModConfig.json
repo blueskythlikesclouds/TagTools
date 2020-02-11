@@ -1,0 +1,15 @@
+{
+  "ModId": "havoc.reloaded",
+  "ModName": "Havoc Reloaded",
+  "ModAuthor": "Skyth",
+  "ModVersion": "1.0.0",
+  "ModDescription": "A mod that creates a Havok type compendium from a given process.",
+  "ModDll": "Havoc.Reloaded.dll",
+  "ModIcon": "Preview.png",
+  "ModDependencies": ["reloaded.sharedlib.hooks"],
+  "SupportedAppId": [
+    "darksoulsremastered.exe",
+    "sekiro.exe",
+    "sonic forces.exe"
+  ]
+}
